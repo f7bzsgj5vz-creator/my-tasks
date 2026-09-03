@@ -34,6 +34,11 @@ input,select,button{font:inherit}
 .filter{border:0;background:transparent;padding:7px 10px;border-radius:9px;cursor:pointer;color:#666}
 .filter.active{background:#fff;color:#333;box-shadow:0 2px 7px #0000000b;font-weight:700}
 #taskList{display:flex;flex-direction:column;gap:9px}
+.tools{display:flex;gap:7px;width:100%}
+#searchInput,#sortSelect{padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#444;outline:none}
+#searchInput{flex:1;min-width:0}
+#sortSelect{width:145px}
+#searchInput:focus,#sortSelect:focus{border-color:var(--primary)}
 .task{background:var(--card);padding:14px;border-radius:17px;display:flex;align-items:center;gap:11px;box-shadow:0 3px 13px #00000008}
 .task.completed{opacity:.55}
 .task.completed .task-title{text-decoration:line-through}
@@ -50,8 +55,10 @@ input,select,button{font:inherit}
  .container{padding-left:13px;padding-right:13px}
  .input-row{gap:7px}
  #addButton{width:74px;padding:0}
- .toolbar{align-items:flex-start;gap:10px;flex-direction:column}
+ .toolbar{align-items:stretch;gap:10px;flex-direction:column}
  .filter{padding:7px 12px}
+ .tools{width:100%}
+ #sortSelect{width:135px}
 }
 </style>
 </head>
@@ -83,6 +90,15 @@ input,select,button{font:inherit}
       <button class="filter" data-filter="active">未完了</button>
       <button class="filter" data-filter="completed">完了</button>
     </div>
+    <div class="tools">
+      <input id="searchInput" type="search" placeholder="🔍 タスクを検索…">
+      <select id="sortSelect" aria-label="並び替え">
+        <option value="newest">新しい順</option>
+        <option value="oldest">古い順</option>
+        <option value="due">期限が近い順</option>
+        <option value="priority">優先度順</option>
+      </select>
+    </div>
   </div>
 
   <div id="taskList"></div>
@@ -97,6 +113,9 @@ const taskList=document.getElementById("taskList");
 const taskCount=document.getElementById("taskCount");
 let tasks=JSON.parse(localStorage.getItem("myTasks")||"[]");
 let currentFilter="all";
+let searchText="";
+let sortMode="newest";
+let editingId=null;
 
 function saveTasks(){localStorage.setItem("myTasks",JSON.stringify(tasks))}
 function addTask(){
@@ -108,17 +127,44 @@ function addTask(){
 }
 function toggleTask(id){tasks=tasks.map(t=>t.id===id?{...t,completed:!t.completed}:t);saveTasks();renderTasks()}
 function deleteTask(id){tasks=tasks.filter(t=>t.id!==id);saveTasks();renderTasks()}
+function editTask(id){
+  const task=tasks.find(t=>t.id===id);
+  if(!task)return;
+  const title=prompt("タスク名を編集",task.title);
+  if(title===null)return;
+  const trimmed=title.trim();
+  if(!trimmed)return;
+  task.title=trimmed;
+  saveTasks();renderTasks();
+}
 function formatDate(date){if(!date)return "";const [y,m,d]=date.split("-");return `${y}/${m}/${d}`}
 function getPriorityText(p){return ({high:"高",medium:"中",low:"低"})[p]}
 function getFilteredTasks(){
-  if(currentFilter==="active")return tasks.filter(t=>!t.completed);
-  if(currentFilter==="completed")return tasks.filter(t=>t.completed);
-  return tasks;
+  let list=[...tasks];
+  if(currentFilter==="active")list=list.filter(t=>!t.completed);
+  if(currentFilter==="completed")list=list.filter(t=>t.completed);
+  if(searchText)list=list.filter(t=>t.title.toLowerCase().includes(searchText.toLowerCase()));
+
+  const priorityRank={high:0,medium:1,low:2};
+  if(sortMode==="oldest")list.sort((a,b)=>a.id-b.id);
+  else if(sortMode==="due")list.sort((a,b)=>{
+    if(!a.dueDate && !b.dueDate)return b.id-a.id;
+    if(!a.dueDate)return 1;
+    if(!b.dueDate)return -1;
+    return a.dueDate.localeCompare(b.dueDate);
+  });
+  else if(sortMode==="priority")list.sort((a,b)=>
+    priorityRank[a.priority]-priorityRank[b.priority] || b.id-a.id
+  );
+  else list.sort((a,b)=>b.id-a.id);
+  return list;
 }
 function renderTasks(){
   const filtered=getFilteredTasks();
   taskList.innerHTML="";
-  if(!filtered.length){taskList.innerHTML='<div class="empty">タスクはありません</div>'}
+  if(!filtered.length){
+    taskList.innerHTML=`<div class="empty">${searchText?"検索に一致するタスクはありません":"タスクはありません"}</div>`;
+  }
   filtered.forEach(task=>{
     const el=document.createElement("div");
     el.className=`task ${task.completed?"completed":""}`;
@@ -131,9 +177,11 @@ function renderTasks(){
           ${task.dueDate?`<span>期限: ${formatDate(task.dueDate)}</span>`:""}
         </div>
       </div>
+      <button class="edit" title="編集" aria-label="編集">✎</button>
       <button class="delete" title="削除" aria-label="削除">×</button>`;
     el.querySelector(".task-title").textContent=task.title;
     el.querySelector(".check").addEventListener("change",()=>toggleTask(task.id));
+    el.querySelector(".edit").addEventListener("click",()=>editTask(task.id));
     el.querySelector(".delete").addEventListener("click",()=>deleteTask(task.id));
     taskList.appendChild(el);
   });
@@ -141,6 +189,12 @@ function renderTasks(){
 }
 addButton.addEventListener("click",addTask);
 taskInput.addEventListener("keydown",e=>{if(e.key==="Enter")addTask()});
+document.getElementById("searchInput").addEventListener("input",e=>{
+  searchText=e.target.value.trim();renderTasks();
+});
+document.getElementById("sortSelect").addEventListener("change",e=>{
+  sortMode=e.target.value;renderTasks();
+});
 document.querySelectorAll(".filter").forEach(button=>{
   button.addEventListener("click",()=>{
     document.querySelectorAll(".filter").forEach(b=>b.classList.remove("active"));
